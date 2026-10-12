@@ -1,10 +1,17 @@
-# Compliance mapping — điền trong checkpoint 5
+# Compliance mapping — checkpoint 5
+
+Mọi evidence là file/dòng trong repo này, chạy bằng `--mock` trên dữ liệu synthetic. Số dòng ledger tính
+trên `reports/ledger.jsonl` đã nộp (dòng 1–24: run `--as dpo`; dòng 25–27: run `--as support_l1`).
+
+**Trạng thái đối chiếu pháp lý:** chưa đối chiếu được văn bản gốc trên nguồn chính thức (Công báo /
+vbpl.vn) trong buổi lab, nên cột "Nguồn" chỉ ghi tên văn bản và nhóm nghĩa vụ; **số điều/khoản cụ thể: chưa
+xác minh**. Mô phỏng kỹ thuật dưới đây không tự chứng minh tuân thủ pháp luật.
 
 | Nguồn / yêu cầu | Control đã làm | Evidence file:dòng | Giới hạn |
 |---|---|---|---|
-| Luật 91/2025/QH15 | | | |
-| NĐ 356/2025/NĐ-CP | | | |
-| Luật AI 134/2025/QH15 | | | |
-| OWASP ASI01, ASI03, ASI04 | | | |
-
-Chỉ ghi điều khoản cụ thể khi đã đối chiếu văn bản gốc. Mô phỏng kỹ thuật không tự chứng minh tuân thủ pháp luật.
+| Luật 91/2025/QH15 (Bảo vệ dữ liệu cá nhân) — nhóm nghĩa vụ: xử lý đúng mục đích, giới hạn người được truy cập, bảo vệ dữ liệu nhạy cảm (CCCD, tài khoản ngân hàng), không chuyển dữ liệu khi không có căn cứ. Điều/khoản: **chưa xác minh**. | PEP kiểm principal + purpose trước mọi tool; `support_l1` không đọc hồ sơ; restricted + egress luôn deny; PII bị redact trước khi rời Run A. | `agent/policy.py:83` (restricted+egress deny), `agent/policy.py:99` (allowed_tools), `agent/policy.py:108` (purpose); `agent/runner.py:154` (redact); `reports/ledger.jsonl` dòng 26 (support_l1 `read_customer` deny), dòng 24 (dpo `http_post` deny); `reports/attack-after.log` rỗng so với `reports/attack-before.log` 4 dòng. | Principal là fixture (`data/principals.json`), không có xác thực/đồng ý của chủ thể dữ liệu thật; regex PII chỉ đo trên test set 120 câu. |
+| NĐ 356/2025/NĐ-CP (văn bản hướng dẫn Luật 91/2025) — nhóm nghĩa vụ: biện pháp kỹ thuật bảo vệ, ghi nhận/nhật ký xử lý dữ liệu, đánh giá tác động. Điều/khoản: **chưa xác minh**. | Ledger hash-chain ghi mọi quyết định allow/deny với reason, `on_behalf_of`, `run_id`, `expires_at`, `args_hash` (không ghi PII thô); DPIA-lite. | `agent/ledger.py:61-69` (append + prev_hash/hash), `agent/ledger.py:72-90` (verify); `agent/runner.py:107-140` (mọi tool call qua `_authorize` → `ledger.append`); `reports/ledger.jsonl` (verify = True); `reports/dpia-lite.md`. | Hash chain trong một file không phát hiện cắt đuôi/viết lại toàn bộ; không có mốc tin cậy ngoài; không phải log bất biến. |
+| Luật AI 134/2025/QH15 (Trí tuệ nhân tạo) — nhóm nghĩa vụ: quản lý rủi ro, minh bạch, giám sát con người, truy vết với hệ thống AI. Điều/khoản: **chưa xác minh**. | Agent có danh tính mỗi run (`agent_id`, `run_id`, TTL 15 phút); hành động được truy vết qua ledger; trả lời CLI cảnh báo khi phát hiện chỉ thị cài trong ticket. | `agent/runner.py:189-196` (session: request_id, expires_at), `agent/runner.py:125-140` (trường ledger); `agent/runner.py:209-210` (cảnh báo người dùng). | Mock LLM deterministic, không đánh giá hành vi model thật; chưa phân loại mức rủi ro hệ thống theo luật. |
+| OWASP Top 10 for Agentic Applications (2026) — **ASI01 Agent Goal Hijack** | Ticket là dữ liệu: Run B chỉ nhận `list[int]` ticket_id từ **tên file**, suy khách từ `related_tickets`; customer_id/URL trong chỉ thị không được dùng. | `agent/runner.py:86` (regex tên file), `agent/runner.py:155`, `agent/runner.py:167`; `tests/test_split.py` (KH-000777 không bị đọc), `tests/test_injection.py` 8/8 PASS. | Khách thật sự gắn với ticket lure (KH-000999) vẫn được dpo đọc — split không chặn được việc này, chỉ PEP egress chặn rò rỉ. |
+| OWASP ASI03 Identity & Privilege Abuse | OBO: quyền hiệu lực = `allowed_tools ∩ agent_scopes ∩ parent_scopes`; unknown principal, sai purpose, hết hạn → deny. | `agent/policy.py:93`, `agent/policy.py:99-105`, `agent/policy.py:108`, `agent/policy.py:112-116`; `tests/test_obo.py` 5/5 PASS; `reports/ledger.jsonl` dòng 26. | `--as` chỉ chọn fixture, không phải đăng nhập; không có token ủy quyền ký số. |
+| OWASP ASI04 Agentic Supply Chain Vulnerabilities | Gitleaks v8.30.1 quét lịch sử + hook pre-commit pin version; dependency lock có hash. | `.pre-commit-config.yaml` (rev v8.30.1, `gitleaks-system`, `pass_filenames: false`); `requirements.lock` (10 package, `--hash=sha256`); `reports/secrets-incident.md`; `tests/test_supply_chain.py` 3/3 PASS. | Không kiểm SBOM/chữ ký gói, không kiểm tool/MCP server bên thứ ba; finding duy nhất là token giả `LAB24-DEMO`. |
